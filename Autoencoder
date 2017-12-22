@@ -1,0 +1,271 @@
+# -*- coding: utf-8 -*-
+"""
+Created on Fri Nov 17 15:06:40 2017
+
+@author: Max
+"""
+
+
+import numpy as np # linear algebra
+import pandas as pd # data processing, CSV file I/O (e.g. pd.read_csv)
+
+import plotly.offline as py
+#py.init_notebook_mode(connected=True)
+import plotly.graph_objs as go
+import plotly.tools as tls
+import seaborn as sns
+import matplotlib.image as mpimg
+import matplotlib.pyplot as plt
+import matplotlib
+from __future__ import division, print_function, absolute_import
+from sklearn.preprocessing import StandardScaler
+import tensorflow as tf
+import numpy as np
+import matplotlib.pyplot as plt
+from tensorflow.python.client import device_lib
+
+x_data_mat = X
+x_data_mat = StandardScaler().fit_transform(x_data_mat)
+Target = Y_labels
+# Parameters
+use_gpu = 1
+learning_rate = 0.001
+training_epochs = 200
+batch_size = 10
+display_step = 1
+# Network Parameters
+n_hidden_1 = 100#int(386/size_penalty) # 1st layer num features
+n_hidden_2 = 20#int(192/size_penalty) # 2nd layer num features
+n_hidden_3 = 2#int(96/size_penalty)  # 3rd layer num features
+n_input = len(x_data_mat[0]) # MNIST data input (img shape: 28*28)
+cost_epoch = [0]*training_epochs
+ex_str = "cost_epoch_relu_1=cost_epoch"
+model_path = "C:/Users/Max/Dropbox/UPenn Courses/STAT 571 - Modern Data Mining/Mini-Project/Models/auto_encoder_diabeetus_" + str(training_epochs) + "_epochs_" + str(n_hidden_1) + "_"  + str(n_hidden_2) + "_" + str(n_hidden_3) + "_layers.ckpt"
+
+dropout_rate = 0.5 #percentage of connections to drop
+# Importing train/test set
+
+
+x_train_shape = len(x_data_mat[0])
+
+#x_data_mat = x_data_mat.T
+
+if 'session' in locals() and session is not None:
+    print('Close interactive session')
+    session.close()
+
+# Choosing Device 
+def get_available_devices():
+    local_device_protos = device_lib.list_local_devices()
+    return [x.name for x in local_device_protos]
+
+devices = get_available_devices()
+
+if use_gpu == 1 & len(devices)>1:
+    device = 1
+else:
+    device = 0
+
+
+# tf Graph input (only pictures)
+X = tf.placeholder("float", [None, n_input])
+
+weights = {
+    'encoder_h1': tf.Variable(tf.random_normal([n_input, n_hidden_1])),
+    'encoder_h2': tf.Variable(tf.random_normal([n_hidden_1, n_hidden_2])),
+    'encoder_h3': tf.Variable(tf.random_normal([n_hidden_2, n_hidden_3])),
+    'decoder_h1': tf.Variable(tf.random_normal([n_hidden_3, n_hidden_2])),
+    'decoder_h2': tf.Variable(tf.random_normal([n_hidden_2, n_hidden_1])),
+    'decoder_h3': tf.Variable(tf.random_normal([n_hidden_1, n_input])),
+}
+biases = {
+    'encoder_b1': tf.Variable(tf.random_normal([n_hidden_1])),
+    'encoder_b2': tf.Variable(tf.random_normal([n_hidden_2])),
+    'encoder_b3': tf.Variable(tf.random_normal([n_hidden_3])),
+    'decoder_b1': tf.Variable(tf.random_normal([n_hidden_2])),
+    'decoder_b2': tf.Variable(tf.random_normal([n_hidden_1])),
+    'decoder_b3': tf.Variable(tf.random_normal([n_input]))
+}
+
+
+# Building the encoder
+def encoder(x):
+    graph = tf.Graph()
+    with graph.as_default():
+        with tf.device(devices[device]):
+            # Encoder Hidden layer with sigmoid activation #1
+            layer_1 = tf.nn.sigmoid(tf.add(tf.matmul(x, weights['encoder_h1']),
+                                           biases['encoder_b1']))
+            layer_1 = tf.layers.dropout(layer_1, rate=dropout_rate)
+            # Encoder Hidden layer with sigmoid activation #2
+            layer_2 = tf.nn.sigmoid(tf.add(tf.matmul(layer_1, weights['encoder_h2']),
+                                           biases['encoder_b2']))
+            layer_2 = tf.layers.dropout(layer_2, rate=dropout_rate)
+            # Encoder Hidden layer with sigmoid activation #3
+            layer_3 = tf.nn.sigmoid(tf.add(tf.matmul(layer_2, weights['encoder_h3']),
+                                           biases['encoder_b3']))
+            
+            return layer_3
+
+
+# Building the decoder
+def decoder(x):
+    graph = tf.Graph()
+    with graph.as_default():
+        with tf.device(devices[device]):
+            # Decoder Hidden layer with sigmoid activation #1
+            layer_1 = tf.nn.sigmoid(tf.add(tf.matmul(x, weights['decoder_h1']),
+                                           biases['decoder_b1']))
+            layer_1 = tf.layers.dropout(layer_1, rate=dropout_rate)
+            # Decoder Hidden layer with sigmoid activation #2
+            layer_2 = tf.nn.sigmoid(tf.add(tf.matmul(layer_1, weights['decoder_h2']),
+                                           biases['decoder_b2']))
+            layer_2 = tf.layers.dropout(layer_2, rate=dropout_rate)
+            # Decoder Hidden layer with sigmoid activation #3
+            layer_3 = tf.nn.sigmoid(tf.add(tf.matmul(layer_2, weights['decoder_h3']),
+                                           biases['decoder_b3']))
+            
+            return layer_3
+
+# Construct model
+encoder_op = encoder(X)
+decoder_op = decoder(encoder_op)
+
+# Prediction
+y_pred = decoder_op
+# Targets (Labels) are the input data.
+y_true = X
+
+# Define loss and optimizer, minimize the squared error
+cost = tf.reduce_mean(tf.pow(y_true - y_pred, 2))
+optimizer = tf.train.RMSPropOptimizer(learning_rate).minimize(cost)
+
+# Initializing the variables
+init = tf.global_variables_initializer()
+random_seed = np.random.randint(0,10000)
+# Starting the saver
+saver = tf.train.Saver()
+# Launch the graph
+print("Starting 1st session...")
+with tf.Session() as sess:
+    sess.run(init)
+    # Training cycle
+    
+    for epoch in range(training_epochs):
+        # Loop over all batches
+        i = 0
+        while i < len(x_data_mat):
+            start = i
+            end = i + batch_size
+            x_batch = np.array(x_data_mat[start:end])
+            i += batch_size
+            # Run optimization op (backprop) and cost op (to get loss value)
+            _, c = sess.run([optimizer, cost], feed_dict={X: x_batch})
+            
+        cost_epoch[epoch] = c
+        
+        # Display logs per epoch step
+        if epoch % display_step == 0:
+            print("Epoch:", '%04d' % (epoch+1),
+                  "cost =", "{:.9f}".format(c))
+            
+    print("Optimization Finished!")
+    
+    save_path = saver.save(sess, model_path)
+    print("Model saved in file: %s" % save_path)
+
+    plt.figure(figsize=(8,4))
+    plt.plot(cost_epoch)
+    plt.xlabel('Epochs')
+    plt.ylabel('Cost')
+    plt.title('Cost over Epochs')
+##############################################################################################    
+##############################################################################################   
+##############################################################################################   
+##############################################################################################   
+##############################################################################################   
+exec(ex_str)    
+print("Starting 2nd session...")    
+sess = tf.Session()
+# Initialize variables
+sess.run(init)
+
+# Restore model weights from previously saved model
+saver.restore(sess, model_path)
+print("Model restored from file: %s" % save_path)  
+
+result_encoded = sess.run(encoder_op, feed_dict={X:x_data_mat})
+
+
+#from mpl_toolkits.mplot3d import Axes3D
+#fig = plt.figure(figsize=(40,50))
+#ax = plt.axes(projection='3d')
+#
+#z = result_encoded[:,0]
+#x = result_encoded[:,1]
+#y = result_encoded[:,2]
+#
+#c = x + y
+#
+#ax.scatter(x, y, z, c=y_data,cmap='coolwarm',s=((y_data+3)^2))
+
+
+trace0 = go.Scatter(
+    x = result_encoded[:,0],
+    y = result_encoded[:,1],
+    name = Target,
+    hoveron = Target,
+    mode = 'markers',
+    text = Target,
+    showlegend = False,
+    marker = dict(
+        size = 8,
+        color = Target,
+        colorscale ='Jet',
+        showscale = True,
+        line = dict(
+            width = 2,
+            color = 'rgb(255, 255, 255)'
+        ),
+        opacity = 0.8
+    )
+)
+data = [trace0]
+
+layout = go.Layout(
+    title= 'Autoencoder middle layer output',
+    titlefont=dict(size=36),
+    hovermode= 'closest',
+    height= 1200,
+    width= 1400,
+    xaxis= dict(
+#         title= 'Second Principal Component',
+         title= 'Neuron 1 output',
+         titlefont=dict(size=36),
+        ticklen= 0,
+        ticks='',
+        autorange=True,
+        showticklabels=True,
+        zeroline= True,
+        gridwidth= 0,
+        showgrid = True,
+        #rangemode = "tozero",
+    ),
+    yaxis=dict(
+#        title= 'Third Principal Component',
+        title= 'Neuron 2 output',
+        titlefont=dict(size=36),
+        ticklen= 0,
+        ticks='',
+        autorange=True,
+        showticklabels=True,
+        zeroline= True,
+        gridwidth= 0,
+        showgrid = True,
+        #rangemode = "tozero",
+    ),
+    showlegend= True
+)
+
+fig = dict(data=data, layout=layout)
+py.plot(fig, filename='styled-scatter')
